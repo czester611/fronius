@@ -103,9 +103,9 @@ def ikona_baterii(soc):
     elif soc >= 20: return u'\x05'
     else:           return u'\x06'
 
-def pasek(wartosc, max_wartosc, dlugosc=5):
+def pasek(wartosc, max_wartosc, dlugosc=10):
     wypelnione = int(round(float(min(wartosc, max_wartosc)) / max_wartosc * dlugosc))
-    return u'\xff' * wypelnione + u'-' * (dlugosc - wypelnione)
+    return u'\xff' * wypelnione + u'_' * (dlugosc - wypelnione)
 
 def pobierz_dane():
     url = "http://192.168.5.244/solar_api/v1/GetPowerFlowRealtimeData.fcgi"
@@ -146,7 +146,7 @@ def wyswietl(dane):
     linie = [
         linia1,
         linia(u'\x00', u"PV:{}".format(pasek(pv, 3600)),           u"{}W".format(pv)),
-        linia(u'\x01', u"Siec:",                                   u"{}W".format(grid)),
+        linia(u'\x01', u"Grid:",                                   u"{}W".format(grid)),
         linia(u'\x07', u"Load:",                                   u"{}W".format(abs(load))),
     ]
     for i, tekst in enumerate(linie):
