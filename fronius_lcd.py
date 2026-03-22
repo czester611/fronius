@@ -14,7 +14,7 @@ IKONA_SLONCE = (
     0b10101,
     0b00100,
 )
-IKONA_SIEC_POBOR = (
+IKONA_SIEC = (
     0b00100,
     0b01110,
     0b11111,
@@ -24,7 +24,7 @@ IKONA_SIEC_POBOR = (
     0b11111,
     0b00000,
 )
-IKONA_BAT_PELNA = (
+IKONA_BAT_100 = (
     0b01110,
     0b11111,
     0b11111,
@@ -34,7 +34,17 @@ IKONA_BAT_PELNA = (
     0b11111,
     0b11111,
 )
-IKONA_BAT_SREDNIA = (
+IKONA_BAT_75 = (
+    0b01110,
+    0b11111,
+    0b10001,
+    0b11111,
+    0b11111,
+    0b11111,
+    0b11111,
+    0b11111,
+)
+IKONA_BAT_50 = (
     0b01110,
     0b11111,
     0b10001,
@@ -44,7 +54,17 @@ IKONA_BAT_SREDNIA = (
     0b11111,
     0b11111,
 )
-IKONA_BAT_PUSTA = (
+IKONA_BAT_25 = (
+    0b01110,
+    0b11111,
+    0b10001,
+    0b10001,
+    0b10001,
+    0b10001,
+    0b11111,
+    0b11111,
+)
+IKONA_BAT_0 = (
     0b01110,
     0b11111,
     0b10001,
@@ -54,63 +74,38 @@ IKONA_BAT_PUSTA = (
     0b10001,
     0b11111,
 )
-# Domek wypelniony - duze obciazenie
-IKONA_DOM_PELNY = (
+IKONA_DOMEK = (
     0b00100,
     0b01110,
     0b11111,
+    0b11011,
+    0b11011,
+    0b11011,
     0b11111,
-    0b11111,
-    0b11111,
-    0b11111,
-    0b11111,
-)
-# Domek w polowie
-IKONA_DOM_SREDNI = (
-    0b00100,
-    0b01110,
-    0b11111,
-    0b10001,
-    0b10001,
-    0b11111,
-    0b11111,
-    0b11111,
-)
-# Domek pusty - male obciazenie
-IKONA_DOM_PUSTY = (
-    0b00100,
-    0b01110,
-    0b11111,
-    0b10001,
-    0b10001,
-    0b10001,
-    0b10001,
-    0b11111,
+    0b00000,
 )
 
-lcd.create_char(0, IKONA_SLONCE)       # \x00 slonce
-lcd.create_char(1, IKONA_SIEC_POBOR)  # \x01 siec
-lcd.create_char(2, IKONA_BAT_PELNA)   # \x02 bat pelna
-lcd.create_char(3, IKONA_BAT_SREDNIA) # \x03 bat srednia
-lcd.create_char(4, IKONA_BAT_PUSTA)   # \x04 bat pusta
-lcd.create_char(5, IKONA_DOM_PELNY)   # \x05 dom pelny
-lcd.create_char(6, IKONA_DOM_SREDNI)  # \x06 dom sredni
-lcd.create_char(7, IKONA_DOM_PUSTY)   # \x07 dom pusty
+lcd.create_char(0, IKONA_SLONCE)
+lcd.create_char(1, IKONA_SIEC)
+lcd.create_char(2, IKONA_BAT_100)
+lcd.create_char(3, IKONA_BAT_75)
+lcd.create_char(4, IKONA_BAT_50)
+lcd.create_char(5, IKONA_BAT_25)
+lcd.create_char(6, IKONA_BAT_0)
+lcd.create_char(7, IKONA_DOMEK)
 
-MAX_LOAD = 14000  # W
+MAX_LOAD = 14000
 
 def ikona_baterii(soc):
-    if soc >= 66: return u'\x02'
-    elif soc >= 33: return u'\x03'
-    else: return u'\x04'
+    if soc >= 80:   return u'\x02'
+    elif soc >= 60: return u'\x03'
+    elif soc >= 40: return u'\x04'
+    elif soc >= 20: return u'\x05'
+    else:           return u'\x06'
 
-def ikona_domu(load):
-    procent = float(abs(load)) / MAX_LOAD
-    if procent >= 0.5: return u'\x05'
-    else:              return u'\x07'
-
-def ikona_sieci(grid):
-    return u'\x01'
+def pasek(wartosc, max_wartosc, dlugosc=5):
+    wypelnione = int(round(float(min(wartosc, max_wartosc)) / max_wartosc * dlugosc))
+    return u'\xff' * wypelnione + u'-' * (dlugosc - wypelnione)
 
 def pobierz_dane():
     url = "http://192.168.5.244/solar_api/v1/GetPowerFlowRealtimeData.fcgi"
@@ -125,10 +120,6 @@ def pobierz_dane():
         "load": s["P_Load"],
         "akku": s["P_Akku"],
     }
-
-def pasek(wartosc, max_wartosc, dlugosc=5):
-    wypelnione = int(round(float(min(wartosc, max_wartosc)) / max_wartosc * dlugosc))
-    return u'\xff' * wypelnione + u'-' * (dlugosc - wypelnione)
 
 def wyswietl(dane):
     soc  = dane['soc']
@@ -154,9 +145,9 @@ def wyswietl(dane):
 
     linie = [
         linia1,
-        linia(u'\x00', u"PV:{}".format(pasek(pv, 3600)),     u"{}W".format(pv)),
-        linia(u'\x01', u"Siec:",                              u"{}W".format(grid)),
-        linia(ikona_domu(load), u"Load:{}".format(pasek(load, 14000)), u"{}W".format(abs(load))),
+        linia(u'\x00', u"PV:{}".format(pasek(pv, 3600)),          u"{}W".format(pv)),
+        linia(u'\x01', u"Siec:",                                   u"{}W".format(grid)),
+        linia(u'\x07', u"Load:{}".format(pasek(load, MAX_LOAD)),   u"{}W".format(abs(load))),
     ]
     for i, tekst in enumerate(linie):
         lcd.cursor_pos = (i, 0)
