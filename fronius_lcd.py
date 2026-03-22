@@ -145,9 +145,9 @@ def wyswietl(dane):
 
     linie = [
         linia1,
-        linia(u'\x00', u"PV:{}".format(pasek(pv, 3600)),          u"{}W".format(pv)),
+        linia(u'\x00', u"PV:{}".format(pasek(pv, 3600)),           u"{}W".format(pv)),
         linia(u'\x01', u"Siec:",                                   u"{}W".format(grid)),
-        linia(u'\x07', u"Load:{}".format(pasek(load, MAX_LOAD)),   u"{}W".format(abs(load))),
+        linia(u'\x07', u"Load:",                                   u"{}W".format(abs(load))),
     ]
     for i, tekst in enumerate(linie):
         lcd.cursor_pos = (i, 0)
