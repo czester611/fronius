@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-import json, urllib2, time
+import json, time
+import urllib.request as urllib2
 from RPLCD.i2c import CharLCD
 
 lcd = CharLCD('PCF8574', 0x27, cols=20, rows=4)
@@ -145,9 +146,9 @@ def wyswietl(dane):
 
     linie = [
         linia1,
-        linia(u'\x00', u"PV:{}".format(pasek(pv, 3600)),           u"{}W".format(pv)),
+        linia(u'\x00', u"PV:{}".format(pasek(pv, 3600)),          u"{}W".format(pv)),
         linia(u'\x01', u"Grid:",                                   u"{}W".format(grid)),
-        linia(u'\x07', u"Load:",                                   u"{}W".format(abs(load))),
+        linia(u'\x07', u"Load:",   u"{}W".format(abs(load))),
     ]
     for i, tekst in enumerate(linie):
         lcd.cursor_pos = (i, 0)
