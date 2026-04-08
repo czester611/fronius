@@ -39,5 +39,9 @@ Usefull commands:
 bashsudo systemctl stop fronius-lcd      # zatrzymaj
 sudo systemctl restart fronius-lcd   # restart
 journalctl -u fronius-lcd -f         # podgląd logów na żywo
+
+    python3 -m venv venv
+    source venv/bin/activate
+
 ```
 Restart=always i RestartSec=5 Provide way to auto restart frozen script
