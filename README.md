@@ -1,9 +1,9 @@
-## Najlepiej użyć systemd — to najbardziej niezawodny sposób na autostart w Raspberry Pi.
-Utwórz plik usługi:
+## Use systemd — It's the most efficient way to provide autorun in Raspberry Pi.
+Create service file:
 ```
 bashsudo nano /etc/systemd/system/fronius-lcd.service
 ```
-Wklej zawartość:
+paste following settings:
 
 ```
 ini[Unit]
@@ -23,21 +23,21 @@ User=pi
 WantedBy=multi-user.target
 ```
 
-Następnie włącz i uruchom usługę:
+Turn on service:
 ```
 bashsudo systemctl daemon-reload
 sudo systemctl enable fronius-lcd
 sudo systemctl start fronius-lcd
 ```
 
-Sprawdź czy działa:
+Check if it's work:
 ```
 bashsudo systemctl status fronius-lcd
 ```
-Przydatne komendy na przyszłość:
+Usefull commands:
 ```
 bashsudo systemctl stop fronius-lcd      # zatrzymaj
 sudo systemctl restart fronius-lcd   # restart
 journalctl -u fronius-lcd -f         # podgląd logów na żywo
 ```
-Restart=always i RestartSec=5 sprawiają że jeśli skrypt się wysypie (np. brak sieci przy starcie), systemd automatycznie spróbuje go uruchomić ponownie po 5 sekundach.
+Restart=always i RestartSec=5 Provide way to auto restart frozen script
