@@ -4,13 +4,12 @@ Prognoza słoneczna + produkcja PV + ceny energii — Ruszcza, gm. Połaniec
 Wyświetlacz: SSD1306 128x64 OLED (I2C)
 Falownik: Fronius Symo GEN24 10.0 Plus | 3.6 kWp | Południe 30-35°
 
-Model PV (61 dni, 2026-02-01 do 2026-04-04):
-  prod = clip(2.18355×rad - 0.009121×rad×doy - 1.44181,  0, 26.0)
-  R²=0.79,  MAE=2.75 kWh
+Model PV (68 dni, 2026-02-01 do 2026-04-12):
+  prod = clip(2.32864×rad - 0.010965×rad×doy - 1.70793,  0, 26.0)
+  R²=0.79,  MAE=2.78 kWh
 
-Ceny energii: ENTSO-E Transparency Platform (obszar PL: 10YPL-AREA-----S)
-  Dane: EUR/MWh → przeliczone na zł/kWh z VAT 23%
-  Klucz API: https://transparency.entsoe.eu → My Account → Web API Security Token
+Ceny energii: PSE RCE API (https://api.raporty.pse.pl/api/rce-pln)
+  Dane: zł/MWh → zł/kWh (Rynkowa Cena Energii, bez klucza, bez rejestracji)
 
 Przed uruchomieniem:
   sudo timedatectl set-timezone Europe/Warsaw
@@ -42,21 +41,13 @@ VIEW_SWITCH   = 6          # zmiana widoku co N sekund
 DRAW_INTERVAL = 1.0        # odswiezanie wyswietlacza co N sekund (nie szybciej — I2C)
 FORECAST_DAYS = 5
 
-# ── Klucz ENTSO-E — wklej tutaj swój token ───────────────────────────────────
-# Rejestracja: https://transparency.entsoe.eu
-# Email z prośbą o klucz: transparency@entsoe.eu (temat: "Restful API access")
-ENTSO_TOKEN   = "XXXXXXXXX"
-ENTSO_AREA_PL = "10YPL-AREA-----S"   # strefa cenowa Polska (PSE)
-NS            = "urn:iec62325.351:tc57wg16:451-3:publicationdocument:7:3"
-
-# ── Przelicznik walut i VAT ───────────────────────────────────────────────────
-EUR_TO_PLN    = 4.25   # kurs EUR/PLN — zaktualizuj ręcznie lub podłącz API NBP
-VAT           = 1.23   # 23% VAT
+# ── PSE RCE API — bez klucza, bez rejestracji ────────────────────────────────
+PSE_API_URL   = "https://api.raporty.pse.pl/api/rce-pln"  # zł/MWh, czas lokalny PL
 
 # ── Model PV ─────────────────────────────────────────────────────────────────
-PV_A   =  2.18355
-PV_B   = -0.009121
-PV_C   = -1.44181
+PV_A   =  2.32864
+PV_B   = -0.010965
+PV_C   = -1.70793
 PV_MAX = 26.0
 
 def doy_for(date: datetime) -> int:
@@ -141,96 +132,53 @@ def parse_weather(raw):
             })
     return daily, hourly
 
-# ── Pobieranie cen energii ENTSO-E ────────────────────────────────────────────
+# ── Pobieranie cen energii PSE RCE ───────────────────────────────────────────
 def fetch_prices(day: datetime) -> dict:
     """
-    Pobiera ceny dnia następnego (Day-Ahead) dla Polski z ENTSO-E.
-    Zwraca słownik {hour(int): price_pln_kwh(float)} lub pusty dict.
-    Ceny są publikowane zazwyczaj ok. 13:30-14:30 na dzień następny.
+    Pobiera ceny RCE z API PSE dla podanego dnia.
+    Zwraca {hour: cena_zł_kWh} — cena hurtowa zł/kWh.
+    API publiczne PSE: https://api.raporty.pse.pl/api/rce-pln
+    Ceny jutrzejsze publikowane ok. 14:00.
     """
-    if ENTSO_TOKEN == "WKLEJ_TUTAJ_SWOJ_KLUCZ":
-        return {}
-
-    # ENTSO-E wymaga UTC, polska strefa to UTC+1 (zima) lub UTC+2 (lato)
-    # Pobieramy cały dzień od 00:00 do 23:00 lokalnego czasu
-    start = day.replace(hour=0, minute=0, second=0, microsecond=0)
-    end   = day.replace(hour=23, minute=0, second=0, microsecond=0)
-
-    # Zakres w UTC (PSE publikuje w UTC+1/+2, ENTSO-E API przyjmuje UTC)
-    tz_offset = day.utcoffset() if day.utcoffset() else timedelta(hours=1)
-    start_utc = (start - tz_offset).strftime("%Y%m%d%H%M")
-    end_utc   = (end   - tz_offset + timedelta(hours=1)).strftime("%Y%m%d%H%M")
-
-    url = (
-        f"https://web-api.tp.entsoe.eu/api"
-        f"?securityToken={ENTSO_TOKEN}"
-        f"&documentType=A44"          # Day-ahead prices
-        f"&in_Domain={ENTSO_AREA_PL}"
-        f"&out_Domain={ENTSO_AREA_PL}"
-        f"&periodStart={start_utc}"
-        f"&periodEnd={end_utc}"
-    )
+    date_str = day.strftime("%Y-%m-%d")
+    # URL jako surowy string — tak działają wszystkie znane implementacje PSE API.
+    # requests.get() z surowym URL nie enkoduje $filter ani apostrofów.
+    url = f"{PSE_API_URL}?$filter=business_date eq '{date_str}'"
     try:
-        r = requests.get(url, timeout=15)
+        r = requests.get(url, timeout=10, headers={"Accept": "application/json"})
         r.raise_for_status()
-        return _parse_entso_xml(r.text, day)
+        data = r.json()
+        items = data.get("value", [])
+        print(f"[PSE] {date_str}: {len(items)} rekordów")
+        return _parse_pse(items)
     except Exception as e:
-        print(f"[ENTSO-E błąd] {e}")
+        print(f"[PSE błąd] {date_str}: {e}")
         return {}
 
-def _parse_entso_xml(xml_text: str, day: datetime) -> dict:
+def _parse_pse(items: list) -> dict:
     """
-    Parsuje XML z ENTSO-E i zwraca {hour: cena_zł_kWh}.
-    Obsługuje rozdzielczości PT15M, PT30M, PT60M/PT1H.
-    Punkty 15/30-minutowe są uśredniane do godzin.
+    Parsuje listę rekordów PSE RCE i zwraca {hour: cena_zł_kWh}.
+    Pole udtczas_oreb: "00:00 - 00:15" — czas początku okresu, czas lokalny PL.
+    Pole rce_pln: cena w zł/MWh → dzielimy przez 1000 → zł/kWh.
+    Punkty 15-minutowe są uśredniane do godzin.
     """
-    prices   = {}
-    mins_map = {"PT15M": 15, "PT30M": 30, "PT60M": 60, "PT1H": 60}
-
-    # Offset lokalnej strefy od UTC — działa poprawnie gdy Pi ma Europe/Warsaw
-    local_offset = datetime.now().astimezone().utcoffset()
-
-    try:
-        root = ET.fromstring(xml_text)
-
-        for ts in root.findall(f"{{{NS}}}TimeSeries"):
-            period = ts.find(f"{{{NS}}}Period")
-            if period is None:
-                continue
-
-            resolution = period.findtext(f"{{{NS}}}resolution") or ""
-            mins = mins_map.get(resolution)
-            if mins is None:
-                print(f"[ENTSO-E] nieznana rozdzielczość: {resolution} — pomijam")
-                continue
-
-            ti = period.find(f"{{{NS}}}timeInterval")
-            if ti is None:
-                continue
-            start_str = ti.findtext(f"{{{NS}}}start")
-            if not start_str:
-                continue
-            start_utc = datetime.strptime(start_str, "%Y-%m-%dT%H:%MZ").replace(tzinfo=timezone.utc)
-
-            # Zbierz punkty i agreguj do godzin (średnia z 4 pkt przy PT15M)
-            hour_buckets: dict = {}
-            for point in period.findall(f"{{{NS}}}Point"):
-                pos   = int(point.findtext(f"{{{NS}}}position"))
-                price = float(point.findtext(f"{{{NS}}}price.amount"))
-                utc_t   = start_utc + timedelta(minutes=(pos - 1) * mins)
-                local_t = (utc_t + local_offset).replace(tzinfo=None)
-                if local_t.date() == day.date():
-                    hour_buckets.setdefault(local_t.hour, []).append(price)
-
-            for hour, vals in hour_buckets.items():
-                avg_eur_mwh  = sum(vals) / len(vals)
-                pln_kwh      = (avg_eur_mwh / 1000) * EUR_TO_PLN * VAT
-                prices[hour] = round(pln_kwh, 4)
-
-    except Exception as e:
-        print(f"[XML parse błąd] {e}")
-
-    return prices
+    hour_buckets: dict = {}
+    for item in items:
+        try:
+            price = float(item["rce_pln"]) / 1000  # zł/MWh → zł/kWh
+            # udtczas_oreb = "HH:MM - HH:MM" — bierzemy godzinę startu
+            time_str = item.get("udtczas_oreb", "")
+            if time_str:
+                start_str = time_str.split(" - ")[0].strip()  # "00:00"
+                hour = int(start_str.split(":")[0])
+            else:
+                # fallback na dtime
+                dt   = datetime.strptime(item["dtime"], "%Y-%m-%d %H:%M:%S")
+                hour = dt.hour if dt.minute > 0 else (dt.hour - 1) % 24
+            hour_buckets.setdefault(hour, []).append(price)
+        except Exception:
+            continue
+    return {h: round(sum(v) / len(v), 4) for h, v in sorted(hour_buckets.items())}
 
 # ── Widok cen energii ─────────────────────────────────────────────────────────
 def draw_prices(draw, prices_today: dict, prices_tomorrow: dict):
@@ -249,9 +197,9 @@ def draw_prices(draw, prices_today: dict, prices_tomorrow: dict):
     if not prices_today and not prices_tomorrow:
         # Brak klucza lub danych
         draw.text((0, 14), "Brak danych.", font=FONT_SMALL, fill="white")
-        draw.text((0, 26), "Dodaj klucz ENTSO-E", font=FONT_TINY, fill="white")
-        draw.text((0, 36), "w pliku skryptu.", font=FONT_TINY, fill="white")
-        draw.text((0, 50), "transparency.entsoe.eu", font=FONT_TINY, fill="white")
+        draw.text((0, 26), "Brak danych z PSE.", font=FONT_TINY, fill="white")
+        draw.text((0, 36), "Sprawdz polaczenie", font=FONT_TINY, fill="white")
+        draw.text((0, 50), "api.raporty.pse.pl", font=FONT_TINY, fill="white")
         return
 
     def fmt(p): return f"{p:.3f}" if p else "---"
@@ -296,12 +244,12 @@ def draw_prices_chart(draw, prices_today: dict, prices_tomorrow: dict):
     """
     Widok 6: wykres słupkowy cen godzinowych dziś i jutro (jeśli dostępne).
     """
-    #draw.text((0, 0), "WYKRES CEN 24H", font=FONT_TINY, fill="white")
+    draw.text((0, 0), "WYKRES CEN 24H", font=FONT_TINY, fill="white")
     draw.line([(0, 10), (127, 10)], fill="white")
 
     if not prices_today:
-        draw.text((4, 24), "Brak danych ENTSO-E", font=FONT_SMALL, fill="white")
-        draw.text((4, 36), "Ustaw klucz API", font=FONT_TINY, fill="white")
+        draw.text((4, 24), "Brak danych PSE RCE", font=FONT_SMALL, fill="white")
+        draw.text((4, 36), "Sprawdz polaczenie", font=FONT_TINY, fill="white")
         return
 
     # Wybierz dane do wykresu: dziś (rano bierzemy jutro jeśli dostępne)
@@ -335,6 +283,14 @@ def draw_prices_chart(draw, prices_today: dict, prices_tomorrow: dict):
             # Ciemniejszy = taniej (odwrócona logika — niski słupek = niska cena)
             fill = "white"
             draw.rectangle([x, y_top, x+w, chart_bottom], fill=fill)
+
+    # Pozioma linia referencyjna 0.60 zl/kWh
+    REF_PRICE = 0.60
+    if min_p <= REF_PRICE <= max_p:
+        ref_y = chart_bottom - int(((REF_PRICE - min_p) / rng) * chart_h)
+        for x in range(0, 128, 4):
+            draw.point((x, ref_y), fill="white")
+        draw.text((104, ref_y - 7), "0.60", font=FONT_TINY, fill="white")
 
     draw.line([(0, chart_bottom+1), (127, chart_bottom+1)], fill="white")
     for tick in [0, 6, 12, 18, 23]:
@@ -431,7 +387,7 @@ def draw_sun_bars(draw, daily):
 
 def draw_loading(draw):
     draw.text((4, 4),  "Pobieranie...",           font=FONT_TINY,  fill="white")
-    draw.text((4, 18), "Open-Meteo + ENTSO-E",    font=FONT_SMALL, fill="white")
+    draw.text((4, 18), "Open-Meteo + PSE RCE",    font=FONT_SMALL, fill="white")
     draw.text((4, 32), "Ruszcza/Polaniec",         font=FONT_TINY,  fill="white")
     draw.text((4, 46), f"PV {KWP}kWp | max {PV_MAX}kWh", font=FONT_TINY, fill="white")
 
@@ -457,8 +413,7 @@ def main():
     if tz != "Europe/Warsaw":
         print(f"[UWAGA] Strefa: '{tz}' — ustaw: sudo timedatectl set-timezone Europe/Warsaw")
 
-    has_entso = ENTSO_TOKEN != "WKLEJ_TUTAJ_SWOJ_KLUCZ"
-    print(f"[OK] ENTSO-E: {'klucz ustawiony' if has_entso else 'BRAK KLUCZA — ekran cen wyświetli instrukcję'}")
+    print(f"[OK] PSE RCE API: {PSE_API_URL}")
 
     serial = i2c(port=I2C_PORT, address=I2C_ADDRESS)
     device = ssd1306(serial, width=128, height=64)
@@ -473,7 +428,7 @@ def main():
     last_fetch_price   = 0
     view_index         = 0
     # Widoki: 4 PV + 2 ceny energii
-    views = ["today_big", "hourly_pv", "daily_pv", "prices", "prices_chart"]
+    views = ["today_big", "hourly_pv", "daily_pv", "sun_bars", "prices", "prices_chart"]
     last_switch = time.time()
 
     while True:
@@ -498,8 +453,8 @@ def main():
                 continue
 
         # Odśwież ceny
-        if has_entso and (now - last_fetch_price > INTERVAL_PRICE or not prices_today):
-            print(f"[CENY]  {today.strftime('%H:%M:%S')} — pobieram ENTSO-E...")
+        if now - last_fetch_price > INTERVAL_PRICE or not prices_today:
+            print(f"[CENY]  {today.strftime('%H:%M:%S')} — pobieram PSE RCE...")
             prices_today    = fetch_prices(today)
             prices_tomorrow = fetch_prices(tomorrow)
             last_fetch_price = now
